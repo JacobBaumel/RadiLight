@@ -1,3 +1,0 @@
-/home/nano/bru/build/CMakeFiles/opencvTest.dir
-/home/nano/bru/build/CMakeFiles/edit_cache.dir
-/home/nano/bru/build/CMakeFiles/rebuild_cache.dir
