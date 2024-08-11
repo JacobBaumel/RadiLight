@@ -1,60 +1,11 @@
-#include "opencv2/opencv.hpp"
-#include "opencv2/cudaimgproc.hpp"
-#include "opencv2/cudafilters.hpp"
-#include "opencv2/cudaarithm.hpp"
+#include <opencv2/opencv.hpp>
+#include <opencv2/cudaimgproc.hpp>
+#include <opencv2/cudafilters.hpp>
+#include <opencv2/cudaarithm.hpp>
 #include <vector>
+#include "nvapriltags/nvapriltags/nvApril"
 #include <opencv2/cudafeatures2d.hpp>
 
-std::vector<cv::Point2f> checkIfPointNearLine(const cv::Point2f& pt1, const cv::Point2f& pt2, std::vector<cv::Point2f> corners) {
-    std::vector<cv::Point2f> newCorners;
-    for (const auto& pt : corners) {
-        double d = std::abs((pt2.x - pt1.x) * (pt1.y - pt.y) - (pt1.x - pt.x) * (pt2.y - pt1.y)) / cv::norm(pt2 - pt1);
-        if (d >= 10) {
-            newCorners.push_back(pt);
-        }
-    }
-    return newCorners;
-}
-
-//tt Function to tag corners
-std::vector<cv::Point2f> tagCorners(std::vector<cv::Point2f> corners) {
-    if (corners.size() < 4) {
-        throw std::invalid_argument("Not enough corners provided");
-    }
-
-    auto x_min = std::min_element(corners.begin(), corners.end(), [](const cv::Point2f& a, const cv::Point2f& b) { return a.x < b.x; });
-    auto y_min = std::min_element(corners.begin(), corners.end(), [](const cv::Point2f& a, const cv::Point2f& b) { return a.y < b.y; });
-    auto x_max = std::max_element(corners.begin(), corners.end(), [](const cv::Point2f& a, const cv::Point2f& b) { return a.x < b.x; });
-    auto y_max = std::max_element(corners.begin(), corners.end(), [](const cv::Point2f& a, const cv::Point2f& b) { return a.y < b.y; });
-    
-    cv::Point2f pt1 = *x_min;
-    cv::Point2f pt2 = *y_max;
-    cv::Point2f pt3 = *x_max;
-    cv::Point2f pt4 = *y_min;
-
-    corners.erase(std::remove(corners.begin(), corners.end(), pt1), corners.end());
-    corners.erase(std::remove(corners.begin(), corners.end(), pt2), corners.end());
-    corners.erase(std::remove(corners.begin(), corners.end(), pt3), corners.end());
-    corners.erase(std::remove(corners.begin(), corners.end(), pt4), corners.end());
-
-    corners = checkIfPointNearLine(pt1, pt2, corners);
-    corners = checkIfPointNearLine(pt2, pt3, corners);
-    corners = checkIfPointNearLine(pt3, pt4, corners);  
-    corners = checkIfPointNearLine(pt4, pt1, corners);
-
-    x_min = std::min_element(corners.begin(), corners.end(), [](const cv::Point2f& a, const cv::Point2f& b) { return a.x < b.x; });
-    y_min = std::min_element(corners.begin(), corners.end(), [](const cv::Point2f& a, const cv::Point2f& b) { return a.y < b.y; });
-    x_max = std::max_element(corners.begin(), corners.end(), [](const cv::Point2f& a, const cv::Point2f& b) { return a.x < b.x; });
-    y_max = std::max_element(corners.begin(), corners.end(), [](const cv::Point2f& a, const cv::Point2f& b) { return a.y < b.y; });  
-    
-    cv::Point2f leftmost_corner = *x_min;
-    cv::Point2f bottommost_corner = *y_max;
-    cv::Point2f rightmost_corner = *x_max;
-    cv::Point2f topmost_corner = *y_min;
-  
-    std::vector<cv::Point2f> tag_corners = { leftmost_corner, bottommost_corner, rightmost_corner, topmost_corner };
-    return tag_corners;
-}
 
 int main(){
     cv::VideoCapture cap(0);
@@ -108,7 +59,6 @@ int main(){
 
 
     cv::imshow("frame", frame);
-    cv::imwrite("yuh.jpg", frame);
     cv::waitKey(0);
     //cv::cuda::solvePnPRansac(points_3dMat, points_2d, kMat, distMat, rvecs, tvecs);   
     
