@@ -1,10 +1,18 @@
 #include "cuda.h"
 #include "cuda_runtime.h"
 #include <opencv2/opencv.hpp>
+#include <opencv2/imgproc.hpp>
 #include <chrono>
 #include "nvapriltags/include/nvAprilTags.h"
-
-// copy from https://github.com/NVIDIA-AI-IOT/ros2-nvapriltags/blob/main/src/AprilTagNode.cpp
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h> 
+#include <iostream>
 
 struct AprilTagsImpl {
     // Handle used to interface with the stereo library.
@@ -79,16 +87,125 @@ struct AprilTagsImpl {
     }
 };
 
+
+float *converterQuaternion(const float *matrix ){
+    float *quaternion = new float[4];
+    float fourWSquaredMinus1 = matrix[0] + matrix[4] + matrix[8];
+            float fourXSquaredMinus1 = matrix[0] - matrix[4] - matrix[8];
+            float fourYSquaredMinus1 = matrix[4] - matrix[0] - matrix[8];
+            float fourZSquaredMinus1 = matrix[8] - matrix[0] - matrix[4];
+
+            int biggestIndex = 0;
+            float fourBiggestSquaredMinus1 = fourWSquaredMinus1;
+
+            if(fourXSquaredMinus1 > fourBiggestSquaredMinus1) {
+                fourBiggestSquaredMinus1 = fourXSquaredMinus1;
+                biggestIndex = 1;
+            }
+            if (fourYSquaredMinus1 > fourBiggestSquaredMinus1) {
+                fourBiggestSquaredMinus1 = fourYSquaredMinus1;
+                biggestIndex = 2;
+            }
+            if (fourZSquaredMinus1 > fourBiggestSquaredMinus1) {
+                fourBiggestSquaredMinus1 = fourZSquaredMinus1;
+                biggestIndex = 3;
+            }
+            // Per form square root and division
+            float biggestVal = sqrt (fourBiggestSquaredMinus1 + 1.0f ) * 0.5f;
+            float mult = 0.25f / biggestVal;
+
+            // Apply table to compute quaternion values
+            switch (biggestIndex) {
+                case 0:
+                    quaternion[0] = biggestVal;
+                    quaternion[1] = (matrix[7] - matrix[5]) * mult;
+                    quaternion[2] = (matrix[2] - matrix[6]) * mult;
+                    quaternion[3] = (matrix[3] - matrix[1]) * mult;
+                    break;
+                case 1:
+                    quaternion[1] = biggestVal;
+                    quaternion[0] = (matrix[7] - matrix[5]) * mult;
+                    quaternion[2] = (matrix[3] + matrix[1]) * mult;
+                    quaternion[3] = (matrix[2] + matrix[6]) * mult;
+                    break;
+                case 2:
+                    quaternion[2] = biggestVal;
+                    quaternion[0] = (matrix[2] - matrix[6]) * mult;
+                    quaternion[1] = (matrix[3] + matrix[1]) * mult;
+                    quaternion[3] = (matrix[7] + matrix[5]) * mult;
+                    break;
+                case 3:
+                    quaternion[3] = biggestVal;
+                    quaternion[0] = (matrix[3] - matrix[1]) * mult;
+                    quaternion[1] = (matrix[2] + matrix[6]) * mult;
+                    quaternion[2] = (matrix[7] + matrix[5]) * mult;
+                    break;
+            }
+            return quaternion;
+}
+/*
+int sender(int argc, char *argv[], float sendData[7]){
+    int sockfd, portno, n;
+    struct sockaddr_in serv_addr;
+    struct hostent *server;
+
+    char buffer[256];
+    if (argc < 3) {
+       fprintf(stderr,"usage %s hostname port\n", argv[0]);
+       exit(0);
+    }
+    portno = atoi(argv[2]);
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) 
+        error("ERROR opening socket");
+    server = gethostbyname(argv[1]);
+    if (server == NULL) {
+        fprintf(stderr,"ERROR, no such host\n");
+        exit(0);
+    }
+    bzero((char *) &serv_addr, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    bcopy((char *)server->h_addr, 
+         (char *)&serv_addr.sin_addr.s_addr,
+         server->h_length);
+    serv_addr.sin_port = htons(portno);
+    if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) 
+        error("ERROR connecting");
+
+    /*if(!sendData)                              // Check for invalid input
+    {
+        std::cout <<  "Could not open or find the image" << std::endl ;
+        return -1;
+    }
+
+    n = write(sockfd,sendData,sizeof(sendData));
+    if (n < 0) 
+         error("ERROR writing to socket");
+    close(sockfd);
+}
+
+
+void error(const char *msg){
+    perror(msg);
+    exit(0);
+}
+*/
+
+
 int main() {
     printf("cuda main");
+    int framesRead = 0;
     cv::VideoCapture capture;
-    capture.open(0);
-    capture.set(cv::CAP_PROP_FPS, 30);
-    //capture.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
-    //capture.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
-    //capture.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
     cv::Mat frame;
     cv::Mat img_rgba8;
+    float *quaternion;
+
+    capture.open(0);
+    //capture.set(cv::CAP_PROP_FPS, 30);
+    capture.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
+    capture.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
+    capture.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
+    
     capture >> frame;
     cv::cvtColor(frame, img_rgba8, cv::COLOR_BGR2RGBA);
     auto *impl_ = new AprilTagsImpl();
@@ -97,7 +214,7 @@ int main() {
 
     while (capture.isOpened()){
         capture >> frame;
-        auto start = std::chrono::system_clock::now();
+        framesRead++;
         cv::cvtColor(frame, img_rgba8, cv::COLOR_BGR2RGBA);
         
 
@@ -119,25 +236,23 @@ int main() {
             throw std::runtime_error("Failed to run AprilTags detector (error code " +
                                      std::to_string(error) + ")");
         }
-        auto end = std::chrono::system_clock::now();
+            
         for (int i = 0; i < num_detections; i++) {
             const nvAprilTagsID_t &detection = impl_->tags[i];       
+            for (auto corner : detection.corners) {
+                float x = corner.x;
+                float y = corner.y;
+                quaternion = converterQuaternion(detection.orientation);
+                cv::circle(frame, cv::Point(x, y), 4, cv::Scalar(255, 0, 0), -1);
+            }
         }
-        int latency = int(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
-        //int fps = int(1000 / ( std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() + 1));
-      //  std::cout << fps << std::endl;
-        std::cout << latency << std::endl;
-        //std::cout << capture.get(cv::CAP_PROP_FRAME_COUNT) << std::endl;
-        //std::cout << capture.get(cv::CAP_PROP_FRAME_WIDTH) << std::endl;
-        //std::cout << capture.get(cv::CAP_PROP_FRAME_HEIGHT) << std::endl;
-        //std::cout << capture.get(cv::CAP_PROP_FOURCC) << std::endl;
 
-        cv::namedWindow("frame", 0);
-        cv::resizeWindow("frame", 1280,800);
-        cv::imshow("frame", frame);
+        cv::imshow("frame", frame); 
+        std::cout << num_detections << std::endl;
         if (cv::waitKey(10)==27)
             break;
     }
+    delete[] quaternion;
     delete(impl_);
     return 0;
 }
