@@ -1,7 +1,7 @@
 #include "cuda.h"
 #include "cuda_runtime.h"
 #include <opencv2/opencv.hpp>
-#include <opencv2/imgproc.hpp>
+#include <opencv2/cudaimgproc.hpp>
 #include "nvapriltags/include/nvAprilTags.h"
 #include <iostream>
 #include <string.h>
@@ -63,7 +63,7 @@ struct AprilTagsImpl {
         max_tags = max_tags_;
         // Setup input image CUDA buffer.
         const cudaError_t cuda_error =
-                cudaMalloc(&input_image_buffer, image_buffer_size);
+                cudaMallocManaged(&input_image_buffer, image_buffer_size);
         if (cuda_error != cudaSuccess) {
             throw std::runtime_error("Could not allocate CUDA memory (error code " +
                                      std::to_string(cuda_error) + ")");
@@ -163,13 +163,12 @@ void sender(float sendData[7], size_t size) {
 
 int main() {
     printf("cuda main");
-    int framesRead = 0;
     cv::VideoCapture capture;
     cv::Mat frame;
     cv::Mat img_rgba8;
+    cv::cuda::GpuMat img_rgba8gpu;
     float *quaternion;
     float sendData[7];
-
     capture.open(0);
     //capture.set(cv::CAP_PROP_FPS, 30);
     capture.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
@@ -177,16 +176,18 @@ int main() {
     capture.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
     
     capture >> frame;
-    cv::cvtColor(frame, img_rgba8, cv::COLOR_BGR2RGBA);
+    img_rgba8gpu.upload(frame);
+    cv::cuda::cvtColor(img_rgba8gpu, img_rgba8gpu, cv::COLOR_BGR2RGBA);
+    img_rgba8gpu.download(img_rgba8);
     auto *impl_ = new AprilTagsImpl();
     impl_->initialize(img_rgba8.cols, img_rgba8.rows,
                       img_rgba8.total() * img_rgba8.elemSize(),  img_rgba8.step, .1651f, 1);
 
     while (capture.isOpened()){
         capture >> frame;
-        framesRead++;
-        cv::cvtColor(frame, img_rgba8, cv::COLOR_BGR2RGBA);
-        
+        img_rgba8gpu.upload(frame);
+        cv::cuda::cvtColor(img_rgba8gpu, img_rgba8gpu, cv::COLOR_BGR2RGBA);
+        img_rgba8gpu.download(img_rgba8);
 
         const cudaError_t cuda_error =
                 cudaMemcpy(impl_->input_image_buffer, (uchar4 *)img_rgba8.ptr<unsigned char>(0),
