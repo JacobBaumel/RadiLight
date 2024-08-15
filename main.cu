@@ -2,17 +2,16 @@
 #include "cuda_runtime.h"
 #include <opencv2/opencv.hpp>
 #include <opencv2/imgproc.hpp>
-#include <chrono>
 #include "nvapriltags/include/nvAprilTags.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include <iostream>
 #include <string.h>
-#include <sys/types.h>
+#include <fstream>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netdb.h> 
-#include <iostream>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+#define PORT 8080
 
 struct AprilTagsImpl {
     // Handle used to interface with the stereo library.
@@ -143,53 +142,23 @@ float *converterQuaternion(const float *matrix ){
             }
             return quaternion;
 }
-/*
-int sender(int argc, char *argv[], float sendData[7]){
-    int sockfd, portno, n;
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
 
-    char buffer[256];
-    if (argc < 3) {
-       fprintf(stderr,"usage %s hostname port\n", argv[0]);
-       exit(0);
-    }
-    portno = atoi(argv[2]);
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) 
-        error("ERROR opening socket");
-    server = gethostbyname(argv[1]);
-    if (server == NULL) {
-        fprintf(stderr,"ERROR, no such host\n");
-        exit(0);
-    }
-    bzero((char *) &serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, 
-         (char *)&serv_addr.sin_addr.s_addr,
-         server->h_length);
-    serv_addr.sin_port = htons(portno);
-    if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) 
-        error("ERROR connecting");
+void sender(float sendData[7], size_t size) {
+    std::string hostname{"192.168.86.238"};
+    uint16_t port = 9000;
 
-    /*if(!sendData)                              // Check for invalid input
-    {
-        std::cout <<  "Could not open or find the image" << std::endl ;
-        return -1;
-    }
+    int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
 
-    n = write(sockfd,sendData,sizeof(sendData));
-    if (n < 0) 
-         error("ERROR writing to socket");
-    close(sockfd);
+    sockaddr_in destination;
+    destination.sin_family = AF_INET;
+    destination.sin_port = htons(port);
+    destination.sin_addr.s_addr = inet_addr(hostname.c_str());
+
+    int n_bytes = ::sendto(sock, sendData, size, 0, reinterpret_cast<sockaddr*>(&destination), sizeof(destination));
+    std::cout << n_bytes << " bytes sent" << std::endl;
+    ::close(sock);
 }
 
-
-void error(const char *msg){
-    perror(msg);
-    exit(0);
-}
-*/
 
 
 int main() {
@@ -199,6 +168,7 @@ int main() {
     cv::Mat frame;
     cv::Mat img_rgba8;
     float *quaternion;
+    float sendData[7];
 
     capture.open(0);
     //capture.set(cv::CAP_PROP_FPS, 30);
@@ -210,7 +180,7 @@ int main() {
     cv::cvtColor(frame, img_rgba8, cv::COLOR_BGR2RGBA);
     auto *impl_ = new AprilTagsImpl();
     impl_->initialize(img_rgba8.cols, img_rgba8.rows,
-                      img_rgba8.total() * img_rgba8.elemSize(),  img_rgba8.step, .1651f, 2);
+                      img_rgba8.total() * img_rgba8.elemSize(),  img_rgba8.step, .1651f, 1);
 
     while (capture.isOpened()){
         capture >> frame;
@@ -238,15 +208,23 @@ int main() {
         }
             
         for (int i = 0; i < num_detections; i++) {
-            const nvAprilTagsID_t &detection = impl_->tags[i];       
+            const nvAprilTagsID_t &detection = impl_->tags[i]; 
+            quaternion = converterQuaternion(detection.orientation);
+            sendData[0] = detection.translation[0];
+            sendData[1] = detection.translation[1];
+            sendData[2] = detection.translation[2];
+            sendData[3] = quaternion[0];
+            sendData[4] = quaternion[1];
+            sendData[5] = quaternion[2];
+            sendData[6] = quaternion[3];
+            sender(sendData, sizeof(sendData));
             for (auto corner : detection.corners) {
                 float x = corner.x;
                 float y = corner.y;
-                quaternion = converterQuaternion(detection.orientation);
                 cv::circle(frame, cv::Point(x, y), 4, cv::Scalar(255, 0, 0), -1);
             }
         }
-
+        
         cv::imshow("frame", frame); 
         std::cout << num_detections << std::endl;
         if (cv::waitKey(10)==27)
