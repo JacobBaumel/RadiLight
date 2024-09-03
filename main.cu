@@ -9,9 +9,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <unistd.h>
-
-#define PORT 8080
+#include <unistd.h> 
 
 struct AprilTagsImpl {
     // Handle used to interface with the stereo library.
@@ -143,37 +141,58 @@ float *converterQuaternion(const float *matrix ){
             return quaternion;
 }
 
-void sender(float sendData[7], size_t size) {
-    std::string hostname{"192.168.86.238"};
-    uint16_t port = 9000;
-
-    int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
-
+void roborioSender(float sendData[7], size_t size, int sock) {
     sockaddr_in destination;
     destination.sin_family = AF_INET;
-    destination.sin_port = htons(port);
-    destination.sin_addr.s_addr = inet_addr(hostname.c_str());
+    destination.sin_port = htons(9000);
+    destination.sin_addr.s_addr = inet_addr("192.168.86.42");
 
     int n_bytes = ::sendto(sock, sendData, size, 0, reinterpret_cast<sockaddr*>(&destination), sizeof(destination));
     std::cout << n_bytes << " bytes sent" << std::endl;
-    ::close(sock);
 }
 
+void webserverSender(float sendData[7], size_t size, int sock) {
+    sockaddr_in destination;
+    destination.sin_family = AF_INET;
+    destination.sin_port = htons(9001);
+    destination.sin_addr.s_addr = inet_addr("127.0.0.1");
 
+    int n_bytes = ::sendto(sock, sendData, size, 0, reinterpret_cast<sockaddr*>(&destination), sizeof(destination));
+    std::cout << n_bytes << " bytes sent" << std::endl;
+}
 
+char *webserverRecevier(int sock) {
+    int len = sizeof(sockaddr_in);
+    char *buff = new char[1024];
+    sockaddr_in destination;
+    destination.sin_family = AF_INET;
+    destination.sin_port = htons(9001);
+    destination.sin_addr.s_addr = inet_addr("127.0.0.1");
+    
+
+    int readStatus = recvfrom(sock, buff, 1024, 0, (struct sockaddr*)&destination, (socklen_t*)&len);
+    buff[readStatus] = '\0';
+    return buff;
+}
+    
 int main() {
     printf("cuda main");
-    cv::VideoCapture capture;
+    float *quaternion;
+    char *buff;
+    float sendData[7];
+    int roborioSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    int webserverSock = ::socket(AF_INET, SOCK_DGRAM, 0);
+
+    cv::VideoCapture capture = cv::VideoCapture(0, cv::CAP_GSTREAMER);
     cv::Mat frame;
     cv::Mat img_rgba8;
-    cv::cuda::GpuMat img_rgba8gpu;
-    float *quaternion;
-    float sendData[7];
+    cv::cuda::GpuMat img_rgba8gpu;  
     capture.open(0);
     //capture.set(cv::CAP_PROP_FPS, 30);
     capture.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
     capture.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
     capture.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
+    
     
     capture >> frame;
     img_rgba8gpu.upload(frame);
@@ -184,6 +203,7 @@ int main() {
                       img_rgba8.total() * img_rgba8.elemSize(),  img_rgba8.step, .1651f, 1);
 
     while (capture.isOpened()){
+        //auto start = std::chrono::system_clock::now();
         capture >> frame;
         img_rgba8gpu.upload(frame);
         cv::cuda::cvtColor(img_rgba8gpu, img_rgba8gpu, cv::COLOR_BGR2RGBA);
@@ -218,20 +238,26 @@ int main() {
             sendData[4] = quaternion[1];
             sendData[5] = quaternion[2];
             sendData[6] = quaternion[3];
-            sender(sendData, sizeof(sendData));
+            webserverSender(sendData, sizeof(sendData), webserverSock);
+            roborioSender(sendData, sizeof(sendData), roborioSock);
+            buff = webserverRecevier(webserverSock);
             for (auto corner : detection.corners) {
                 float x = corner.x;
                 float y = corner.y;
                 cv::circle(frame, cv::Point(x, y), 4, cv::Scalar(255, 0, 0), -1);
             }
         }
-        
-        cv::imshow("frame", frame); 
-        std::cout << num_detections << std::endl;
-        if (cv::waitKey(10)==27)
-            break;
+        std::cout << buff;
+        //auto end = std::chrono::system_clock::now();
+        //cv::imshow("frame", frame); 
+        //std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
+        //if (cv::waitKey(10)==27)
+        //     break;
     }
     delete[] quaternion;
+    delete[] buff;
+    ::close(roborioSock);
+    ::close(webserverSock);
     delete(impl_);
     return 0;
 }

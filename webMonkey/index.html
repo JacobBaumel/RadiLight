@@ -1,0 +1,11 @@
+<div id="nums"></div>
+
+<script type="module">
+  const $nums = document.getElementById('nums')
+  const ws = new WebSocket(`ws://${location.host}/ws`)
+
+  ws.onmessage = msg => {
+    const nums = JSON.parse(msg.data)
+    $nums.innerText = JSON.stringify(nums, null, 2)
+  }
+</script>
