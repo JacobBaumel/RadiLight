@@ -6,13 +6,10 @@ import (
 	"math"
 	"net"
 )
-func sendResponse(conn *net.UDPConn, addr *net.UDPAddr) {
-    _,err := conn.WriteToUDP([]byte("From server: Hello I got your message "), addr)
-    if err != nil {
-        fmt.Printf("Couldn't send response %v", err)
-    }
-}
 
+var udpConn *net.UDPConn
+
+var udpAddress *net.UDPAddr
 
 func startSocket() {
 	addr := net.UDPAddr{
@@ -25,6 +22,7 @@ func startSocket() {
 		fmt.Printf("Some error %v\n", err)
 		return
 	}
+	udpConn = ser
 
 	for {
 		p := make([]byte, 28)
@@ -33,6 +31,7 @@ func startSocket() {
 			fmt.Printf("Some error  %v", err)
 			continue
 		}
+		udpAddress = remoteaddr;
 
 		fmt.Println("read packet", len(p))
 
@@ -45,6 +44,5 @@ func startSocket() {
 		for wsConn, _ := range wsConns {
 			wsConn.WriteJSON(tagPose)
 		}
-		go sendResponse(ser, remoteaddr)
 	}
 }

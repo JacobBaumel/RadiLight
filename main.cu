@@ -9,7 +9,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <unistd.h> 
+#include <unistd.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+
 
 struct AprilTagsImpl {
     // Handle used to interface with the stereo library.
@@ -175,7 +179,50 @@ char *webserverRecevier(int sock) {
     return buff;
 }
     
+void setStaticIP(char ip_address[15]){
+    ifreq ifr;
+    sockaddr_in *addr;    
+    //make socket
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+
+    //define ipv4
+    ifr.ifr_addr.sa_family = AF_INET;
+
+    //define network interface
+    memcpy(ifr.ifr_name, "eth0", IFNAMSIZ-1);
+
+    //define address
+    addr=(struct sockaddr_in *)&ifr.ifr_addr;
+
+    //convert ip
+    inet_pton(AF_INET,ip_address,&addr->sin_addr);
+
+    //ipset
+    ioctl(sock, SIOCSIFADDR, &ifr);
+    
+    std::memset(&ifr, 0, sizeof(ifr));
+    std::strncpy(ifr.ifr_name, "eth0", IFNAMSIZ - 1);
+
+    //disable eth0
+    ioctl(sock, SIOCGIFFLAGS, &ifr);
+    ifr.ifr_flags &= ~IFF_UP;
+    ioctl(sock, SIOCSIFFLAGS, &ifr);
+
+    //wait
+    sleep(1);
+
+    //enable eth0
+    ifr.ifr_flags |= IFF_UP;
+    ioctl(sock, SIOCSIFFLAGS, &ifr); 
+
+    //socket close
+    close(sock);
+
+    std::cout << ("IP Address updated sucessfully.\n");
+}
+
 int main() {
+    setStaticIP("192.168.86.5");
     printf("cuda main");
     float *quaternion;
     char *buff;
@@ -240,6 +287,7 @@ int main() {
             sendData[6] = quaternion[3];
             webserverSender(sendData, sizeof(sendData), webserverSock);
             roborioSender(sendData, sizeof(sendData), roborioSock);
+            if(webserverRecevier(webserverSock))
             buff = webserverRecevier(webserverSock);
             for (auto corner : detection.corners) {
                 float x = corner.x;
@@ -249,10 +297,10 @@ int main() {
         }
         std::cout << buff;
         //auto end = std::chrono::system_clock::now();
-        //cv::imshow("frame", frame); 
+        cv::imshow("frame", frame); 
         //std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
-        //if (cv::waitKey(10)==27)
-        //     break;
+        if (cv::waitKey(10)==27)
+             break;
     }
     delete[] quaternion;
     delete[] buff;

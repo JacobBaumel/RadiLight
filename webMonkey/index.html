@@ -1,5 +1,9 @@
 <div id="nums"></div>
 
+<label for="ip">IP(typeshit): </label>
+<input type="text" id="ip" name="ip"/>
+<button id="send">Send Type Shit</button>
+
 <script type="module">
   const $nums = document.getElementById('nums')
   const ws = new WebSocket(`ws://${location.host}/ws`)
@@ -7,5 +11,10 @@
   ws.onmessage = msg => {
     const nums = JSON.parse(msg.data)
     $nums.innerText = JSON.stringify(nums, null, 2)
+  }
+
+  document.getElementById('send').onclick = () => {
+    ws.send(document.getElementById("ip").value)
+    document.getElementById("ip").value = ""
   }
 </script>

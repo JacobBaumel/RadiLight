@@ -32,6 +32,20 @@ func startServer() {
 			delete(wsConns, c)
 			return nil
 		})
+
+		for {
+			_, message, err := c.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+				break
+			}
+			log.Printf("recv: %s", message)
+			_,err = udpConn.WriteToUDP(message, udpAddress);
+			if err != nil {
+				log.Println("write:", err)
+				break
+			}
+		}
 	})
 
 	r.GET("/", func(ctx *gin.Context) {
