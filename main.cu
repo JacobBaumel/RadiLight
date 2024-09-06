@@ -89,7 +89,7 @@ struct AprilTagsImpl {
     }
 };
 
-std::array<float, 4> averageRotationMatrixToQuaternion(const std::vector<cv::Mat>& rotationMatrices) {
+std::array<float, 4> averageRotationMatrixToQuaternion(const std::vector<cv::Mat> &rotationMatrices) {
     cv::Mat avgRotationMatrix = cv::Mat::zeros(3, 3, CV_64F);
 
     for (const auto& R : rotationMatrices) {
@@ -109,13 +109,13 @@ std::array<float, 4> averageRotationMatrixToQuaternion(const std::vector<cv::Mat
     float norm = cv::norm(quaternion);
     quaternion /= norm;
 
-    std::array<float, 4> quatArray;
+    std::array<float, 4> quaternionArray;
     quatArray[0] = quaternion.at<float>(0); // x
     quatArray[1] = quaternion.at<float>(1); // y
     quatArray[2] = quaternion.at<float>(2); // z
     quatArray[3] = quaternion.at<float>(3); // w
 
-    return quatArray;
+    return quaternionArray;
 }
 
 void roborioSender(std::array<float, 7>& sendData, int sock) {
