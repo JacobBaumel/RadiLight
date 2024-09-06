@@ -314,7 +314,7 @@ std::array<float, 7> poseEstimate(const std::vector<cv::Point2d> &imagePts){
     std::vector<cv::Point2d> reorderedImagePts = {imagePts[1], imagePts[2], imagePts[3], imagePts[0]};
 
     cv::Mat rvec, tvec;
-    bool success = cv::solvePnP(apriltagPts, reorderedImagePts, kMat, distMat, rvec, tvec, false, cv::SOLVEPNP_IPPE_SQUARE);
+    bool success = cv::solvePnPRansac(apriltagPts, reorderedImagePts, kMat, distMat, rvec, tvec, false, 1000, 8.0F, .99, cv::noArray(), cv::SOLVEPNP_IPPE_SQUARE);
     if (!success){
         std::cout << "Error with SolvePNP" << "\n";
         return lastValidPose;
