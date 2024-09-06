@@ -104,7 +104,7 @@ Eigen::Quaterniond computeAverageQuaternion(const std::vector<Eigen::Quaterniond
     return avg_quat;
 }
 
-std::array<float, 4>converterQuaternion(const cv::Mat matrix){
+std::array<float, 4> converterQuaternion(const cv::Mat matrix){
     std::array<float, 4> quaternion;
     float fourWSquaredMinus1 = matrix.at<float>(0, 0) + matrix.at<float>(1, 1) + matrix.at<float>(2, 2);
     float fourXSquaredMinus1 = matrix.at<float>(0, 0) - matrix.at<float>(1, 1) - matrix.at<float>(2, 2);
@@ -156,6 +156,7 @@ std::array<float, 4>converterQuaternion(const cv::Mat matrix){
     }
     return quaternion;
 }
+
 void roborioSender(std::array<float, 7>& sendData, int sock) {
     sockaddr_in destination;
     destination.sin_family = AF_INET;
@@ -324,7 +325,6 @@ std::array<float, 7> poseEstimate(const std::vector<cv::Point2d> &imagePts){
     lastValidPose = finalPose;
     return finalPose;
 }
-
 
 int main() {
     //setStaticIP("192.168.86.5");
