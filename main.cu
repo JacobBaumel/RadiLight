@@ -4,8 +4,10 @@
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/calib3d.hpp>
 #include "nvapriltags/include/nvAprilTags.h"
+#include <Eigen/Dense>
 #include <iostream>
 #include <string.h>
+#include <json.hpp>
 #include <fstream>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -89,17 +91,27 @@ struct AprilTagsImpl {
     }
 };
 
-/*
-std::array<float, 4>converterQuaternion(const cv::Mat& matrix){
+Eigen::Quaterniond computeAverageQuaternion(const std::vector<Eigen::Quaterniond> quaternions) {
+    Eigen::MatrixXd quat_matrix(4, quaternions.size());
+    for (size_t i = 0; i < quaternions.size(); ++i) {
+        quat_matrix.col(i) << quaternions[i].w(), quaternions[i].x(), quaternions[i].y(), quaternions[i].z();
+    }
+
+    Eigen::Vector4d avg_quat_vector = quat_matrix.rowwise().mean();
+    Eigen::Quaterniond avg_quat(avg_quat_vector[0], avg_quat_vector[1], avg_quat_vector[2], avg_quat_vector[3]);
+
+    avg_quat.normalize();
+    return avg_quat;
+}
+
+std::array<float, 4>converterQuaternion(const cv::Mat matrix){
     std::array<float, 4> quaternion;
     float fourWSquaredMinus1 = matrix.at<float>(0, 0) + matrix.at<float>(1, 1) + matrix.at<float>(2, 2);
     float fourXSquaredMinus1 = matrix.at<float>(0, 0) - matrix.at<float>(1, 1) - matrix.at<float>(2, 2);
     float fourYSquaredMinus1 = matrix.at<float>(1, 1) - matrix.at<float>(0, 0) - matrix.at<float>(2, 2);
     float fourZSquaredMinus1 = matrix.at<float>(2, 2) - matrix.at<float>(0, 0) - matrix.at<float>(1, 1);
-
             int biggestIndex = 0;
             float fourBiggestSquaredMinus1 = fourWSquaredMinus1;
-
             if(fourXSquaredMinus1 > fourBiggestSquaredMinus1) {
                 fourBiggestSquaredMinus1 = fourXSquaredMinus1;
                 biggestIndex = 1;
@@ -142,39 +154,8 @@ std::array<float, 4>converterQuaternion(const cv::Mat& matrix){
             quaternion[2] = (matrix.at<float>(2, 1) + matrix.at<float>(1, 2)) * mult;
             break;
     }
-
     return quaternion;
-}*/
-
-std::array<float, 4> averageRotationMatrixToQuaternion(const std::vector<cv::Mat>& rotationMatrices) {
-    cv::Mat avgRotationMatrix = cv::Mat::zeros(3, 3, CV_64F);
-
-    for (const auto& R : rotationMatrices) {
-        avgRotationMatrix += R;
-    }
-
-    avgRotationMatrix /= rotationMatrices.size();
-
-    cv::Mat U, S, VT;
-    cv::SVD::compute(avgRotationMatrix, S, U, VT);
-    avgRotationMatrix = U * VT;
-
-    cv::Mat quaternion;
-    avgRotationMatrix.convertTo(avgRotationMatrix, CV_32F);
-    cv::Rodrigues(avgRotationMatrix, quaternion);
-
-    float norm = cv::norm(quaternion);
-    quaternion /= norm;
-
-    std::array<float, 4> quatArray;
-    quatArray[0] = quaternion.at<float>(0); // x
-    quatArray[1] = quaternion.at<float>(1); // y
-    quatArray[2] = quaternion.at<float>(2); // z
-    quatArray[3] = quaternion.at<float>(3); // w
-
-    return quatArray;
 }
-
 void roborioSender(std::array<float, 7>& sendData, int sock) {
     sockaddr_in destination;
     destination.sin_family = AF_INET;
@@ -254,15 +235,54 @@ void setStaticIP(char ip_address[15]){
     std::cout << ("IP Address updated sucessfully.\n");
 }
 
-std::array<float, 7> multiTagFinder(uint32_t numDetections, const std::vector<std::vector<cv::Point2d>> &imagePtsSet){
+std::array<float, 7> computeAveragePose(const std::vector<Eigen::Affine3d> poses) {
+    Eigen::Vector3d mean_translation(0, 0, 0);
+    Eigen::Matrix3d mean_rotation = Eigen::Matrix3d::Zero();
+    std::vector<Eigen::Quaterniond> quaternions;
+
+    for (const auto &pose : poses) {
+        mean_translation += pose.translation();
+        quaternions.push_back(Eigen::Quaterniond(pose.linear()));
+    }
+
+    mean_translation /= poses.size();
+
+    Eigen::Quaterniond average_quaternion = computeAverageQuaternion(quaternions);
+
+    Eigen::Matrix3d mean_rotation_matrix = average_quaternion.toRotationMatrix();
+
+    return {mean_translation.x(), mean_translation.y(), mean_translation.z(), mean_rotation_matrix.w(), mean_rotation_matrix.x(), mean_rotation_matrix.y(), mean_rotation_matrix.z()};
+}
+
+Eigen::Affine3d estimateFieldToRobotAprilTag(std::array<float, 7> apriltagPose, int tagID){
+    Eigen::Affine3d cameraToTarget = Eigen::Affine3d::Identity();
+    cameraToTarget.translation() = Eigen::Vector3d(apriltagPose[0], apriltagPose[1], apriltagPose[2]);
+    cameraToTarget.linear() = Eigen::Quaterniond(apriltagPose[3], apriltagPose[4], apriltagPose[5], apriltagPose[6]).toRotationMatrix();
+
+    Eigen::Affine3d cameraToRobot = Eigen::Affine3d::Identity();
+    cameraToRobot.translation() = Eigen::Vector3d(0,0,0);
+    cameraToRobot.linear() = Eigen::Quaterniond(0,0,0,0).toRotationMatrix();
+
+    Eigen::Affine3d fieldRelativeTagPose = Eigen::Affine3d::Identity();
+    fieldRelativeTagPose.translation() = Eigen::Vector3d(0,0,0);
+    fieldRelativeTagPose.linear() = Eigen::Quaterniond(0,0,0,0).toRotationMatrix();
+        
+    Eigen::Affine3d eigenCameraToTargetInverse = cameraToTarget.inverse();
+    
+    Eigen::Affine3d result = fieldRelativeTagPose * eigenCameraToTargetInverse * cameraToRobot;
+
+    return result;
+}
+
+std::array<float, 7> poseEstimate(const std::vector<cv::Point2d> &imagePts){
     static std::array<float, 7> lastValidPose = {0}; 
     std::array<float, 7> finalPose = {0};
 
-    if (numDetections == 0 || imagePtsSet.empty()) {
+    if (imagePts.empty()) {
         std::cout << "No detections" << "\n";
         return lastValidPose;
     }
-    
+
     std::vector<cv::Point3d> apriltagPts = {
         cv::Point3d(-0.08255, 0.08255, 0), 
         cv::Point3d(0.08255, 0.08255, 0), 
@@ -270,41 +290,36 @@ std::array<float, 7> multiTagFinder(uint32_t numDetections, const std::vector<st
         cv::Point3d(-0.08255, -0.08255, 0)
     }; 
 
-    float K[] = {802.9265702293416, 0, 966.4221440154661, 0, 803.6309422064642, 477.6409613889424, 0, 0, 1};
+    float K[] = {802.9265702293416f, 0, 966.4221440154661f, 
+                 0, 803.6309422064642f, 477.6409613889424f, 
+                 0, 0, 1};
     cv::Mat kMat(3, 3, CV_32F, K);
 
     float distCoeffs[5] = {0}; 
     cv::Mat distMat(1, 5, CV_32F, distCoeffs);
 
-    cv::Mat avgTranslation = cv::Mat::zeros(3, 1, CV_64F);
+    std::vector<cv::Point2d> reorderedImagePts = {imagePts[1], imagePts[2], imagePts[3], imagePts[0]};
 
-    std::vector<cv::Mat> rotationMatrices;
-
-    for (uint32_t i = 0; i < numDetections; i++) {
-        std::vector<cv::Point2d> imagePts = imagePtsSet[i];
-        imagePts = {imagePts[1], imagePts[2], imagePts[3], imagePts[0]};
-        cv::Mat rvec, tvec, R;
-
-        bool error = cv::solvePnP(apriltagPts, imagePts, kMat, distMat, rvec, tvec, false, cv::SOLVEPNP_IPPE_SQUARE);
-        if (!error){
-            std::cout << "Error with SolvePNP" << "\n";
-            return lastValidPose;
-        }
-        cv::Rodrigues(rvec, R);
-        rotationMatrices.push_back(R);
-        avgTranslation += tvec;
+    cv::Mat rvec, tvec;
+    bool success = cv::solvePnP(apriltagPts, reorderedImagePts, kMat, distMat, rvec, tvec, false, cv::SOLVEPNP_IPPE_SQUARE);
+    if (!success){
+        std::cout << "Error with SolvePNP" << "\n";
+        return lastValidPose;
     }
-    avgTranslation /= numDetections;
 
-    std::array<float, 4> avgQuaternion = averageRotationMatrixToQuaternion(rotationMatrices);
+    cv::Mat R;
+    cv::Rodrigues(rvec, R);
 
-    finalPose[0] = static_cast<float>(avgTranslation.at<double>(0));
-    finalPose[1] = static_cast<float>(avgTranslation.at<double>(1));
-    finalPose[2] = static_cast<float>(avgTranslation.at<double>(2));
-    finalPose[3] = avgQuaternion[0];
-    finalPose[4] = avgQuaternion[1];
-    finalPose[5] = avgQuaternion[2];
-    finalPose[6] = avgQuaternion[3];
+    
+    std::array<float, 4> quaternion = converterQuaternion(R);
+
+    finalPose[0] = static_cast<float>(tvec.at<double>(0));
+    finalPose[1] = static_cast<float>(tvec.at<double>(1));
+    finalPose[2] = static_cast<float>(tvec.at<double>(2));
+    finalPose[3] = quaternion[0];
+    finalPose[4] = quaternion[1];
+    finalPose[5] = quaternion[2];
+    finalPose[6] = quaternion[3];
     
     lastValidPose = finalPose;
     return finalPose;
@@ -314,9 +329,9 @@ std::array<float, 7> multiTagFinder(uint32_t numDetections, const std::vector<st
 int main() {
     //setStaticIP("192.168.86.5");
     printf("cuda main");
-    std::array<float, 7> finalPose;
-    std::vector<cv::Point2d> apriltagPoints;
-    std::vector<std::vector<cv::Point2d>> imagePts;
+    std::vector<cv::Point2d> imagePts;
+    std::array<float, 7> multitagfieldPose;
+    std::vector<Eigen::Affine3d> fieldPoses;
     std::string buff;
     int roborioSock = ::socket(AF_INET, SOCK_DGRAM, 0);
     int webserverSock = ::socket(AF_INET, SOCK_DGRAM, 0);
@@ -365,22 +380,23 @@ int main() {
         }
 
         imagePts.clear(); 
-        apriltagPoints.clear();
         for (int i = 0; i < numDetections; i++) {
             const nvAprilTagsID_t &detection = impl_->tags[i];
             for (auto corner : detection.corners) {
-                apriltagPoints.push_back(cv::Point2d(corner.x, corner.y));
+                imagePts.push_back(cv::Point2d(corner.x, corner.y));
                 cv::circle(frame, cv::Point(corner.x, corner.y), 4, cv::Scalar(255, 0, 0), -1);
             }
-            imagePts.push_back(apriltagPoints);
+            fieldPoses.push_back(estimateFieldToRobotAprilTag(poseEstimate(imagePts), detection.id));
         }
-
-        finalPose = multiTagFinder(numDetections, imagePts);
-        for (int i = 0; i < finalPose.size(); i++){
-            std::cout << finalPose[i] << "\n";
+        multitagfieldPose = computeAveragePose(fieldPoses);
+        
+        for (int i = 0; i < multitagfieldPose.size(); i++){
+            std::cout << multitagfieldPose[i] << "\n";
         }    
-        webserverSender(finalPose, webserverSock);
-        roborioSender(finalPose, roborioSock);
+
+
+        webserverSender(multitagfieldPose, webserverSock);
+        roborioSender(multitagfieldPose, roborioSock);
         buff = webserverRecevier(webserverSock);
         std::cout << buff;
         cv::imshow("frame", frame); 

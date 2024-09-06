@@ -72,6 +72,9 @@
         "stop_token": "cpp",
         "filesystem": "cpp",
         "__nullptr": "cpp",
-        "__split_buffer": "cpp"
+        "__split_buffer": "cpp",
+        "dense": "cpp",
+        "core": "cpp",
+        "__locale": "cpp"
     }
 }
