@@ -71,6 +71,7 @@
         "semaphore": "cpp",
         "stop_token": "cpp",
         "filesystem": "cpp",
-        "__nullptr": "cpp"
+        "__nullptr": "cpp",
+        "__split_buffer": "cpp"
     }
 }
