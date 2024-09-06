@@ -255,19 +255,31 @@ std::array<float, 7> computeAveragePose(const std::vector<Eigen::Affine3d> poses
     return {mean_translation.x(), mean_translation.y(), mean_translation.z(), mean_rotation_matrix.w(), mean_rotation_matrix.x(), mean_rotation_matrix.y(), mean_rotation_matrix.z()};
 }
 
-Eigen::Affine3d estimateFieldToRobotAprilTag(std::array<float, 7> apriltagPose, int tagID){
+Eigen::Affine3d estimateFieldToRobotAprilTag(std::array<float, 7> apriltagPose, int id){
     Eigen::Affine3d cameraToTarget = Eigen::Affine3d::Identity();
     cameraToTarget.translation() = Eigen::Vector3d(apriltagPose[0], apriltagPose[1], apriltagPose[2]);
     cameraToTarget.linear() = Eigen::Quaterniond(apriltagPose[3], apriltagPose[4], apriltagPose[5], apriltagPose[6]).toRotationMatrix();
-
+    
     Eigen::Affine3d cameraToRobot = Eigen::Affine3d::Identity();
-    cameraToRobot.translation() = Eigen::Vector3d(0,0,0);
-    cameraToRobot.linear() = Eigen::Quaterniond(0,0,0,0).toRotationMatrix();
+    cameraToRobot.translation() = Eigen::Vector3d(-.1064,.0873,0);
+    cameraToRobot.linear() = Eigen::Quaterniond(0, 0.130526, 0, 0.9914449).toRotationMatrix();
 
     Eigen::Affine3d fieldRelativeTagPose = Eigen::Affine3d::Identity();
-    fieldRelativeTagPose.translation() = Eigen::Vector3d(0,0,0);
-    fieldRelativeTagPose.linear() = Eigen::Quaterniond(0,0,0,0).toRotationMatrix();
-        
+    std::ifstream file("2024-crescendo.json");
+    nlohmann::json j;
+    file >> j;
+    for (const auto &tag : j["tags"]) {
+        if (tag["ID"] == id) {
+                fieldRelativeTagPose.translation() = Eigen::Vector3d(tag["pose"]["translation"]["x"].get<float>(), 
+                tag["pose"]["translation"]["y"].get<float>(), 
+                tag["pose"]["translation"]["z"].get<float>());
+                fieldRelativeTagPose.linear() = Eigen::Quaterniond( tag["pose"]["quaternion"]["W"].get<float>(), 
+                tag["pose"]["quaternion"]["X"].get<float>(), 
+                tag["pose"]["quaternion"]["Y"].get<float>(), 
+                tag["pose"]["quaternion"]["Z"].get<float>()).toRotationMatrix();
+        }
+    }
+
     Eigen::Affine3d eigenCameraToTargetInverse = cameraToTarget.inverse();
     
     Eigen::Affine3d result = fieldRelativeTagPose * eigenCameraToTargetInverse * cameraToRobot;
