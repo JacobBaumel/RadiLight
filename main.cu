@@ -89,63 +89,6 @@ struct AprilTagsImpl {
     }
 };
 
-/*
-std::array<float, 4>converterQuaternion(const cv::Mat& matrix){
-    std::array<float, 4> quaternion;
-    float fourWSquaredMinus1 = matrix.at<float>(0, 0) + matrix.at<float>(1, 1) + matrix.at<float>(2, 2);
-    float fourXSquaredMinus1 = matrix.at<float>(0, 0) - matrix.at<float>(1, 1) - matrix.at<float>(2, 2);
-    float fourYSquaredMinus1 = matrix.at<float>(1, 1) - matrix.at<float>(0, 0) - matrix.at<float>(2, 2);
-    float fourZSquaredMinus1 = matrix.at<float>(2, 2) - matrix.at<float>(0, 0) - matrix.at<float>(1, 1);
-
-            int biggestIndex = 0;
-            float fourBiggestSquaredMinus1 = fourWSquaredMinus1;
-
-            if(fourXSquaredMinus1 > fourBiggestSquaredMinus1) {
-                fourBiggestSquaredMinus1 = fourXSquaredMinus1;
-                biggestIndex = 1;
-            }
-            if (fourYSquaredMinus1 > fourBiggestSquaredMinus1) {
-                fourBiggestSquaredMinus1 = fourYSquaredMinus1;
-                biggestIndex = 2;
-            }
-            if (fourZSquaredMinus1 > fourBiggestSquaredMinus1) {
-                fourBiggestSquaredMinus1 = fourZSquaredMinus1;
-                biggestIndex = 3;
-            }
-            
-            float biggestVal = sqrt (fourBiggestSquaredMinus1 + 1.0f ) * 0.5f;
-            float mult = 0.25f / biggestVal;
-            
-    switch (biggestIndex) {
-        case 0:
-            quaternion[0] = biggestVal;
-            quaternion[1] = (matrix.at<float>(2, 1) - matrix.at<float>(1, 2)) * mult;
-            quaternion[2] = (matrix.at<float>(0, 2) - matrix.at<float>(2, 0)) * mult;
-            quaternion[3] = (matrix.at<float>(1, 0) - matrix.at<float>(0, 1)) * mult;
-            break;
-        case 1:
-            quaternion[1] = biggestVal;
-            quaternion[0] = (matrix.at<float>(2, 1) - matrix.at<float>(1, 2)) * mult;
-            quaternion[2] = (matrix.at<float>(1, 0) + matrix.at<float>(0, 1)) * mult;
-            quaternion[3] = (matrix.at<float>(0, 2) + matrix.at<float>(2, 0)) * mult;
-            break;
-        case 2:
-            quaternion[2] = biggestVal;
-            quaternion[0] = (matrix.at<float>(0, 2) - matrix.at<float>(2, 0)) * mult;
-            quaternion[1] = (matrix.at<float>(1, 0) + matrix.at<float>(0, 1)) * mult;
-            quaternion[3] = (matrix.at<float>(2, 1) + matrix.at<float>(1, 2)) * mult;
-            break;
-        case 3:
-            quaternion[3] = biggestVal;
-            quaternion[0] = (matrix.at<float>(1, 0) - matrix.at<float>(0, 1)) * mult;
-            quaternion[1] = (matrix.at<float>(0, 2) + matrix.at<float>(2, 0)) * mult;
-            quaternion[2] = (matrix.at<float>(2, 1) + matrix.at<float>(1, 2)) * mult;
-            break;
-    }
-
-    return quaternion;
-}*/
-
 std::array<float, 4> averageRotationMatrixToQuaternion(const std::vector<cv::Mat>& rotationMatrices) {
     cv::Mat avgRotationMatrix = cv::Mat::zeros(3, 3, CV_64F);
 
