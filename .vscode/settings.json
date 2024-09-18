@@ -75,6 +75,7 @@
         "__split_buffer": "cpp",
         "dense": "cpp",
         "core": "cpp",
-        "__locale": "cpp"
+        "__locale": "cpp",
+        "__bit_reference": "cpp"
     }
 }
