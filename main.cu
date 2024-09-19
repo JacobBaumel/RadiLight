@@ -254,10 +254,10 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock, int webServerSock) 
     std::vector<cv::Point2d> imagePts;
     std::vector<int> detectedTagIds;
     std::array<float, 7> multitagfieldPose;
-    std::string buff;
 
     while (capture.isOpened()) {
-        auto start = std::chrono::steady_clock::now();
+        auto start = std::chrono::steady_clock::now(); 
+
         if (!processing_done) {
             cv::Mat local_frame;
             {
@@ -267,9 +267,12 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock, int webServerSock) 
                     continue;
                 }
                 frame.copyTo(local_frame);
+                //cv::resize(local_frame, local_frame, cv::Size(local_frame.cols / 2, local_frame.rows / 2), 0, 0, cv::INTER_LINEAR);
                 cv::cvtColor(local_frame, img_rgba8, cv::COLOR_BGR2RGBA);
             }
-            auto memory = std::chrono::steady_clock::now();
+            auto frame_end = std::chrono::steady_clock::now();
+            
+            auto memory_start = std::chrono::steady_clock::now();
             const cudaError_t cuda_error =
                 cudaMemcpyAsync(impl_->input_image_buffer, (uchar4 *)img_rgba8.ptr<unsigned char>(0),
                 impl_->input_image_buffer_size, cudaMemcpyHostToDevice, impl_->main_stream);
@@ -278,7 +281,10 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock, int webServerSock) 
                         "Could not memcpy to device CUDA memory (error code " +
                         std::to_string(cuda_error) + ")");
             }
-            auto detect = std::chrono::steady_clock::now();
+            auto memory_end = std::chrono::steady_clock::now();
+            
+            
+            auto detect_start = std::chrono::steady_clock::now();
             uint32_t numDetections;
             const int error = nvAprilTagsDetect(
                     impl_->april_tags_handle, &(impl_->input_image), impl_->tags.data(),
@@ -287,7 +293,10 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock, int webServerSock) 
                 throw std::runtime_error("Failed to run AprilTags detector (error code " +
                                         std::to_string(error) + ")");
             }
-            auto getPose = std::chrono::steady_clock::now();
+            auto detect_end = std::chrono::steady_clock::now();
+
+            
+            auto getPose_start = std::chrono::steady_clock::now();
             imagePts.clear();
             detectedTagIds.clear();
             for (int i = 0; i < numDetections; i++) {
@@ -299,26 +308,25 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock, int webServerSock) 
             }
 
             multitagfieldPose = getMultiTagFieldRelativePose(imagePts, detectedTagIds);
+            auto getPose_end = std::chrono::steady_clock::now();
+
+            // Total time for frame processing
             auto end = std::chrono::steady_clock::now();
-            //webserverSender(multitagfieldPose, webserverSock);
-            //roborioSender(multitagfieldPose, roborioSock);
-            //buff = webserverRecevier(webserverSock);
-            //std::cout << buff;
+            std::chrono::duration<double> get_frame_time = frame_end - start;
+            std::chrono::duration<double> frame_time = end - start;
+            std::chrono::duration<double> memory_time = memory_end - memory_start;
+            std::chrono::duration<double> detect_time = detect_end - detect_start;
+            std::chrono::duration<double> pose_time = getPose_end - getPose_start;
+
+            std::cout << "FrameTime: " << get_frame_time.count() << " s\n";
+            std::cout << "MemoryTime: " << memory_time.count() << " s\n";
+            std::cout << "DetectTime: " << detect_time.count() << " s\n";
+            std::cout << "PoseTime: " << pose_time.count() << " s\n";
+            std::cout << "FPS: " << 1.0 / frame_time.count() << "\n";
+            std::cout << "\n";
             //cv::imshow("frame", frame); 
             //if (cv::waitKey(10)==27)
-            //  break;
-            std::chrono::duration<double> getFrame =  memory - start;
-            std::chrono::duration<double> copyMemory = detect - memory;
-            std::chrono::duration<double> detectTags = getPose - detect;
-            std::chrono::duration<double> getPoseTime = end - getPose;
-            std::cout << "FrameTime: " << getFrame.count() << "\n";
-            std::cout << "MemoryTime: " << copyMemory.count() << "\n";
-            std::cout << "DetectTime: " << detectTags.count() << "\n";
-            std::cout << "PoseTime: " << getPoseTime.count() << "\n";
-            double totalTime = getFrame.count() + copyMemory.count() + detectTags.count() + getPoseTime.count();
-            std::cout << "FPS: " << 1/totalTime << "\n";
-            std::cout << "\n";
-
+                //break;
             processing_done = true;
         }
     }
@@ -330,9 +338,10 @@ int main() {
     capture.open(0, cv::CAP_V4L2);
     capture.set(cv::CAP_PROP_FPS, 90);
     capture.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
-    capture.set(cv::CAP_PROP_FRAME_WIDTH, 1920);
-    capture.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
+    capture.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
+    capture.set(cv::CAP_PROP_FRAME_HEIGHT, 960);
     capture >> frame;
+    //cv::resize(frame, frame, cv::Size(frame.cols / 2, frame.rows / 2), 0, 0, cv::INTER_LINEAR);
     cv::cvtColor(frame, img_rgba8, cv::COLOR_BGR2RGBA);
     auto *impl_ = new AprilTagsImpl();
     impl_->initialize(img_rgba8.cols, img_rgba8.rows,
