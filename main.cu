@@ -8,17 +8,10 @@
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/calib3d.hpp>
 
-// AprilTags and GLM includes
-#include "nvapriltags/include/nvAprilTags.h"
-#include <glm/vec3.hpp>
-#include <glm/ext.hpp>
-#include <glm/gtx/quaternion.hpp>
-
 // Standard library and utility includes
 #include <iostream>
 #include <fstream>
 #include <string.h>
-#include <json.hpp>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -93,48 +86,6 @@ void roborioSender(std::array<float, 7> &sendData, int sock) {
     std::cout << n_bytes << " bytes sent" << std::endl;
 }
 
-void webserverSender(std::array<float, 7> &sendData, int sock) {
-    sockaddr_in destination = {AF_INET, htons(9001), inet_addr("127.0.0.1")};
-    size_t size = sendData.size() * sizeof(float);
-    int n_bytes = ::sendto(sock, sendData.data(), size, 0, reinterpret_cast<sockaddr *>(&destination), sizeof(destination));
-    std::cout << n_bytes << " bytes sent" << std::endl;
-}
-
-std::string webserverReceiver(int sock) {
-    char buff[1024];
-    sockaddr_in destination = {AF_INET, htons(9001), inet_addr("127.0.0.1")};
-    int len = sizeof(sockaddr_in);
-    int readStatus = recvfrom(sock, buff, sizeof(buff), 0, reinterpret_cast<struct sockaddr *>(&destination), reinterpret_cast<socklen_t *>(&len));
-    buff[readStatus] = '\0';
-    return std::string(buff);
-}
-
-void setStaticIP(char ip_address[15]) {
-    ifreq ifr;
-    sockaddr_in *addr;
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    ifr.ifr_addr.sa_family = AF_INET;
-    memcpy(ifr.ifr_name, "eth0", IFNAMSIZ - 1);
-    addr = (struct sockaddr_in *)&ifr.ifr_addr;
-    inet_pton(AF_INET, ip_address, &addr->sin_addr);
-    ioctl(sock, SIOCSIFADDR, &ifr);
-    
-    memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ - 1);
-    ioctl(sock, SIOCGIFFLAGS, &ifr);
-    ifr.ifr_flags &= ~IFF_UP;
-    ioctl(sock, SIOCSIFFLAGS, &ifr);
-    
-    sleep(1);
-
-    ifr.ifr_flags |= IFF_UP;
-    ioctl(sock, SIOCSIFFLAGS, &ifr);
-    close(sock);
-    
-    std::cout << "IP Address updated successfully.\n";
-}
-
-
 std::array<float, 4> eulerToQuaternion(double roll, double pitch, double yaw) {
     std::array<float, 4> quaternion;
     double halfRoll = roll / 2.0, halfPitch = pitch / 2.0, halfYaw = yaw / 2.0;
@@ -145,53 +96,13 @@ std::array<float, 4> eulerToQuaternion(double roll, double pitch, double yaw) {
     return quaternion;
 }
 
-std::array<float, 7> getMultiTagFieldRelativePose(std::vector<cv::Point2d> imagePts, std::vector<int> detectedTagIds){
-    static std::array<float, 7> lastValidPose = {0}; 
-    std::array<float, 7> finalPose = {0};
+std::array<float, 8> getPose(std::vector<cv::Point2d> imagePts, int TagId){
+    static std::array<float, 8> lastValidPose = {0}; 
+    std::array<float, 8> finalPose = {0};
 
-    if (imagePts.empty() || detectedTagIds.empty()) {
+    if (imagePts.empty()) {
         std::cout << "No detections" << "\n";
         return lastValidPose;
-    }
-    std::vector<glm::vec3> apriltagPts;
-    std::vector<cv::Point3d> cvApriltagPts;
-    cvApriltagPts.resize(detectedTagIds.size()*4);
-
-    glm::quat toRotate;
-    glm::vec3 toAdd;    
-
-    std::ifstream file("/home/nano/RadiLight/2024-crescendo.json");
-    nlohmann::json data;
-    file >> data;
-    file.close();
-
-    for(int i = 0; i < detectedTagIds.size(); i++) {
-        apriltagPts.push_back(glm::vec3(0, -0.08255, -0.08255));
-        apriltagPts.push_back(glm::vec3(0, +0.08255, -0.08255));
-        apriltagPts.push_back(glm::vec3(0, +0.08255, +0.08255));
-        apriltagPts.push_back(glm::vec3(0, -0.08255, +0.08255));
-    }
-    for(int i = 0; i < detectedTagIds.size(); i++) {
-        for (auto tag : data["tags"]) {
-            if (tag["ID"] == detectedTagIds[i]) {
-                toRotate = glm::quat(
-                    tag["pose"]["rotation"]["quaternion"]["W"], 
-                    tag["pose"]["rotation"]["quaternion"]["X"], 
-                    tag["pose"]["rotation"]["quaternion"]["Y"], 
-                    tag["pose"]["rotation"]["quaternion"]["Z"]
-                );
-                toAdd = glm::vec3(
-                    tag["pose"]["translation"]["x"], 
-                    tag["pose"]["translation"]["y"], 
-                    tag["pose"]["translation"]["z"]
-                );
-                for(int j = (i * 4); j < (i * 4) + 4; j++) {
-                    apriltagPts[j] = (glm::rotate(toRotate, apriltagPts[j])) + toAdd;
-                    //cvApriltagPts[j] = cv::Point3d(-apriltagPts[j].y, -apriltagPts[j].z, apriltagPts[j].x);
-                    cvApriltagPts[j] = cv::Point3d(apriltagPts[j].x, apriltagPts[j].y, apriltagPts[j].z);
-                }
-            }
-        }
     }
 
     float K[] = {802.9265702293416f, 0, 966.4221440154661f, 
@@ -225,6 +136,7 @@ std::array<float, 7> getMultiTagFieldRelativePose(std::vector<cv::Point2d> image
     finalPose[4] = quaternion[1];
     finalPose[5] = quaternion[2];
     finalPose[6] = quaternion[3];
+    finalPose[7] = TagId;
 
     lastValidPose = finalPose;
     return finalPose;
@@ -250,10 +162,9 @@ void captureThread() {
     }
 }
 
-void processingThread(AprilTagsImpl *impl_, int roborioSock, int webServerSock) { 
+void processingThread(AprilTagsImpl *impl_, int roborioSock) { 
     std::vector<cv::Point2d> imagePts;
-    std::vector<int> detectedTagIds;
-    std::array<float, 7> multitagfieldPose;
+    std::array<float> finalToSend;
 
     while (capture.isOpened()) {
         auto start = std::chrono::steady_clock::now(); 
@@ -297,23 +208,24 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock, int webServerSock) 
 
             
             auto getPose_start = std::chrono::steady_clock::now();
-            imagePts.clear();
-            detectedTagIds.clear();
+
+            
             for (int i = 0; i < numDetections; i++) {
                 const nvAprilTagsID_t &detection = impl_->tags[i];
                 for (auto corner : detection.corners) {
                     imagePts.push_back(cv::Point2d(corner.x, corner.y));
                 }
-                detectedTagIds.push_back(detection.id);
+                finalToSend.push_back(getMultiTagFieldRelativePose(imagePts, detection.id));
+                imagePts.clear();
             }
-
-            multitagfieldPose = getMultiTagFieldRelativePose(imagePts, detectedTagIds);
+            //roborioSender(finalToSend, roborioSock);
             auto getPose_end = std::chrono::steady_clock::now();
 
             // Total time for frame processing
             auto end = std::chrono::steady_clock::now();
-            std::chrono::duration<double> get_frame_time = frame_end - start;
             std::chrono::duration<double> frame_time = end - start;
+            
+            std::chrono::duration<double> get_frame_time = frame_end - start;
             std::chrono::duration<double> memory_time = memory_end - memory_start;
             std::chrono::duration<double> detect_time = detect_end - detect_start;
             std::chrono::duration<double> pose_time = getPose_end - getPose_start;
@@ -324,9 +236,10 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock, int webServerSock) 
             std::cout << "PoseTime: " << pose_time.count() << " s\n";
             std::cout << "FPS: " << 1.0 / frame_time.count() << "\n";
             std::cout << "\n";
-            //cv::imshow("frame", frame); 
-            //if (cv::waitKey(10)==27)
-                //break;
+            finalToSend.clear();
+            cv::imshow("frame", frame); 
+            if (cv::waitKey(10)==27)
+                break;
             processing_done = true;
         }
     }
@@ -334,7 +247,6 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock, int webServerSock) 
 
 int main() {
     int roborioSock = ::socket(AF_INET, SOCK_DGRAM, 0);
-    int webServerSock = ::socket(AF_INET, SOCK_DGRAM, 0);
     capture.open(0, cv::CAP_V4L2);
     capture.set(cv::CAP_PROP_FPS, 90);
     capture.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
@@ -348,13 +260,12 @@ int main() {
                       img_rgba8.total() * img_rgba8.elemSize(),  img_rgba8.step, .1651f, 4);
 
     std::thread cThread(captureThread);
-    std::thread pThread(processingThread, impl_, roborioSock, webServerSock);
+    std::thread pThread(processingThread, impl_, roborioSock);
 
     cThread.join();
     pThread.join();
     capture.release();
     ::close(roborioSock);
-    ::close(webServerSock);
     delete impl_;
     return 0;
 }
