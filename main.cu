@@ -1,5 +1,4 @@
-#define GLM_ENABLE_EXPERIMENTAL
-
+#include "nvapriltags/include/nvAprilTags.h"
 // CUDA and OpenCV includes
 #include "cuda.h"
 #include "cuda_runtime.h"
@@ -79,8 +78,8 @@ struct AprilTagsImpl {
     }
 };
 
-void roborioSender(std::array<float, 7> &sendData, int sock) {
-    sockaddr_in destination = {AF_INET, htons(9000), inet_addr("192.168.86.42")};
+void roborioSender(std::vector<std::array<float, 8>> &sendData, int sock) {
+    sockaddr_in destination = {AF_INET, htons(9000), inet_addr("192.168.86.239")};
     size_t size = sendData.size() * sizeof(float);
     int n_bytes = ::sendto(sock, sendData.data(), size, 0, reinterpret_cast<sockaddr *>(&destination), sizeof(destination));
     std::cout << n_bytes << " bytes sent" << std::endl;
@@ -105,16 +104,23 @@ std::array<float, 8> getPose(std::vector<cv::Point2d> imagePts, int TagId){
         return lastValidPose;
     }
 
+    std::vector<cv::Point3f> cvApriltagPts = 
+    {cv::Point3f(-0.1651, 0.1651, 0),
+    cv::Point3f(0.1651, 0.1651, 0),
+    cv::Point3f(0.1651, -0.1651, 0),
+    cv::Point3f(-0.1651, -0.1651, 0)};
+
     float K[] = {802.9265702293416f, 0, 966.4221440154661f, 
                 0, 803.6309422064642f, 477.6409613889424f, 
                 0, 0, 1};
+
     cv::Mat cameraMatrix(3, 3, CV_32F, K);
 
     float distCoeffs[5] = {0}; 
     cv::Mat distortionMatrix(1, 5, CV_32F, distCoeffs);
 
     cv::Mat rvec, tvec;
-    bool success = cv::solvePnPRansac(cvApriltagPts, imagePts, cameraMatrix, distortionMatrix, rvec, tvec, false, 10000000000, 4.0f, .99, cv::noArray());
+    bool success = cv::solvePnPRansac(cvApriltagPts, imagePts, cameraMatrix, distortionMatrix, rvec, tvec, false, 10000000000, 4.0f, .99, cv::noArray(), cv::SOLVEPNP_SQPNP);
     cv::solvePnPRefineLM(cvApriltagPts, imagePts, cameraMatrix, distortionMatrix, rvec, tvec);
     if (!success){
     std::cerr << "Error with SOLVEPNP" << "\n";
@@ -128,10 +134,13 @@ std::array<float, 8> getPose(std::vector<cv::Point2d> imagePts, int TagId){
     finalPose[0] = +tvecI.at<double>(2, 0);
     finalPose[1] = -tvecI.at<double>(0, 0);
     finalPose[2] = -tvecI.at<double>(1, 0);
+
     double roll = +rvec.at<double>(2, 0);
     double pitch = -rvec.at<double>(0, 0);
     double yaw = +rvec.at<double>(1, 0);
+    
     std::array<float, 4> quaternion = eulerToQuaternion(roll, pitch, yaw);
+
     finalPose[3] = quaternion[0];
     finalPose[4] = quaternion[1];
     finalPose[5] = quaternion[2];
@@ -164,7 +173,7 @@ void captureThread() {
 
 void processingThread(AprilTagsImpl *impl_, int roborioSock) { 
     std::vector<cv::Point2d> imagePts;
-    std::array<float> finalToSend;
+    std::vector<std::array<float, 8>> finalToSend;
 
     while (capture.isOpened()) {
         auto start = std::chrono::steady_clock::now(); 
@@ -184,9 +193,11 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock) {
             auto frame_end = std::chrono::steady_clock::now();
             
             auto memory_start = std::chrono::steady_clock::now();
+
             const cudaError_t cuda_error =
                 cudaMemcpyAsync(impl_->input_image_buffer, (uchar4 *)img_rgba8.ptr<unsigned char>(0),
                 impl_->input_image_buffer_size, cudaMemcpyHostToDevice, impl_->main_stream);
+
             if (cuda_error != cudaSuccess) {
                 throw std::runtime_error(
                         "Could not memcpy to device CUDA memory (error code " +
@@ -204,21 +215,27 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock) {
                 throw std::runtime_error("Failed to run AprilTags detector (error code " +
                                         std::to_string(error) + ")");
             }
+
+            
+
             auto detect_end = std::chrono::steady_clock::now();
 
             
             auto getPose_start = std::chrono::steady_clock::now();
 
-            
+            std::cout << numDetections;
+            std::cout << std::endl;
+
             for (int i = 0; i < numDetections; i++) {
                 const nvAprilTagsID_t &detection = impl_->tags[i];
                 for (auto corner : detection.corners) {
                     imagePts.push_back(cv::Point2d(corner.x, corner.y));
+                    cv::circle(frame, cv::Point(corner.x, corner.y), 3, cv::Scalar(255, 255, 255));
                 }
-                finalToSend.push_back(getMultiTagFieldRelativePose(imagePts, detection.id));
+                finalToSend.push_back(getPose(imagePts, detection.id));
                 imagePts.clear();
             }
-            //roborioSender(finalToSend, roborioSock);
+            roborioSender(finalToSend, roborioSock);
             auto getPose_end = std::chrono::steady_clock::now();
 
             // Total time for frame processing
@@ -236,6 +253,7 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock) {
             std::cout << "PoseTime: " << pose_time.count() << " s\n";
             std::cout << "FPS: " << 1.0 / frame_time.count() << "\n";
             std::cout << "\n";
+
             finalToSend.clear();
             cv::imshow("frame", frame); 
             if (cv::waitKey(10)==27)
@@ -250,8 +268,8 @@ int main() {
     capture.open(0, cv::CAP_V4L2);
     capture.set(cv::CAP_PROP_FPS, 90);
     capture.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
-    capture.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
-    capture.set(cv::CAP_PROP_FRAME_HEIGHT, 960);
+    capture.set(cv::CAP_PROP_FRAME_WIDTH, 1260);
+    capture.set(cv::CAP_PROP_FRAME_HEIGHT, 980);
     capture >> frame;
     //cv::resize(frame, frame, cv::Size(frame.cols / 2, frame.rows / 2), 0, 0, cv::INTER_LINEAR);
     cv::cvtColor(frame, img_rgba8, cv::COLOR_BGR2RGBA);
