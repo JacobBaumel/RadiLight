@@ -78,11 +78,23 @@ struct AprilTagsImpl {
     }
 };
 
-void roborioSender(std::vector<std::array<float, 8>> &sendData, int sock) {
+void roborioSender(const std::vector<std::array<float, 8>> &sendData, int sock) {
+    if (sendData.empty()) {
+        std::cout << "No data to send." << std::endl;
+        return;
+    }
+
     sockaddr_in destination = {AF_INET, htons(9000), inet_addr("192.168.86.239")};
-    size_t size = sendData.size() * sizeof(float);
-    int n_bytes = ::sendto(sock, sendData.data(), size, 0, reinterpret_cast<sockaddr *>(&destination), sizeof(destination));
-    std::cout << n_bytes << " bytes sent" << std::endl;
+    size_t size = sendData.size() * sizeof(std::array<float, 8>);
+
+    int n_bytes = ::sendto(sock, sendData.data(), size, 0, 
+                           reinterpret_cast<sockaddr *>(&destination), sizeof(destination));
+
+    if (n_bytes < 0) {
+        std::cerr << "Failed to send data: " << strerror(errno) << std::endl;
+    } else {
+        std::cout << "Sent " << n_bytes << " bytes (" << sendData.size() << " tags)" << std::endl;
+    }
 }
 
 std::array<float, 4> eulerToQuaternion(double roll, double pitch, double yaw) {
@@ -235,6 +247,15 @@ void processingThread(AprilTagsImpl *impl_, int roborioSock) {
                 finalToSend.push_back(getPose(imagePts, detection.id));
                 imagePts.clear();
             }
+
+            for (const auto &pose : finalToSend) {
+                std::cout << "Tag ID: " << pose[7] << " | Pose: ";
+                for (size_t i = 0; i < 7; i++) {
+                    std::cout << pose[i] << " ";
+                }
+                std::cout << std::endl;
+            }
+            
             roborioSender(finalToSend, roborioSock);
             auto getPose_end = std::chrono::steady_clock::now();
 
