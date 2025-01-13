@@ -1,4 +1,3 @@
-#include "nvapriltags/include/nvAprilTags.h"
 // CUDA and OpenCV includes
 #include "cuda.h"
 #include "cuda_runtime.h"
@@ -6,6 +5,7 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/calib3d.hpp>
+#include "nvapriltags/include/nvAprilTags.h"
 
 // Standard library and utility includes
 #include <iostream>
