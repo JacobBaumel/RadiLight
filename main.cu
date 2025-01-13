@@ -117,10 +117,10 @@ std::array<float, 8> getPose(std::vector<cv::Point2d> imagePts, int TagId){
     }
 
     std::vector<cv::Point3f> cvApriltagPts = 
-    {cv::Point3f(-0.1651, 0.1651, 0),
-    cv::Point3f(0.1651, 0.1651, 0),
-    cv::Point3f(0.1651, -0.1651, 0),
-    cv::Point3f(-0.1651, -0.1651, 0)};
+    {cv::Point3f(-0.08255, 0.08255, 0),
+    cv::Point3f(0.08255, 0.08255, 0),
+    cv::Point3f(0.08255, -0.08255, 0),
+    cv::Point3f(-0.08255, -0.08255, 0)};
 
     float K[] = {802.9265702293416f, 0, 966.4221440154661f, 
                 0, 803.6309422064642f, 477.6409613889424f, 
@@ -132,7 +132,7 @@ std::array<float, 8> getPose(std::vector<cv::Point2d> imagePts, int TagId){
     cv::Mat distortionMatrix(1, 5, CV_32F, distCoeffs);
 
     cv::Mat rvec, tvec;
-    bool success = cv::solvePnPRansac(cvApriltagPts, imagePts, cameraMatrix, distortionMatrix, rvec, tvec, false, 10000000000, 4.0f, .99, cv::noArray(), cv::SOLVEPNP_SQPNP);
+    bool success = cv::solvePnPRansac(cvApriltagPts, imagePts, cameraMatrix, distortionMatrix, rvec, tvec, false, 10000000000, 4.0f, .99, cv::noArray(), cv::SOLVEPNP_IPPE_SQUARE);
     cv::solvePnPRefineLM(cvApriltagPts, imagePts, cameraMatrix, distortionMatrix, rvec, tvec);
     if (!success){
     std::cerr << "Error with SOLVEPNP" << "\n";
